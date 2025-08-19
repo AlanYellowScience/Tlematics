@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Telematics Dashboard</title>
+
+  <!-- Materialize -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet" />
+  <!-- Icons -->
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#0b1220;        /* fondo principal más oscuro para contraste */
+      --card:#111827;      /* tarjetas */
+      --text:#e9ecef;      /* texto principal más claro */
+      --muted:#b6c2d1;     /* texto secundario */
+      --accent:#38bdf8;    /* celeste */
+      --chip-on:#10b981;   /* verde encendido */
+      --chip-off:#6b7280;  /* gris apagado */
+      --border:#1f2937;    /* grids */
+    }
+    body{background:var(--bg); color:var(--text)}
+    nav{background:linear-gradient(90deg,#0ea5e9,#22d3ee)}
+    .brand-logo{font-weight:800; letter-spacing:.4px}
+    .card{background:var(--card); border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,.25)}
+    .card .card-title{color:var(--text)}
+    .muted{color:var(--muted)}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+    #map{height:420px; border-radius:16px; border:1px solid var(--border)}
+    .unit-item{cursor:pointer}
+    .unit-item:hover{background:#0f172a}
+    .collection{border:none}
+    .collection .collection-item{background:transparent; border-bottom:1px solid var(--border)}
+    .chip{background:var(--accent)}
+    .chip.teal{background:var(--chip-on)!important}
+    .chip.grey{background:var(--chip-off)!important}
+    .skeleton{animation:pulse 1.6s ease-in-out infinite; background:#0f172a; border-radius:12px;}
+    @keyframes pulse{0%{opacity:.55}50%{opacity:.95}100%{opacity:.55}}
+    /* Loader */
+    .loader-overlay{position:fixed;inset:0;background:rgba(2,6,23,.85);display:none;align-items:center;justify-content:center;z-index:9999}
+    .loader-overlay.show{display:flex}
+    .loader-box{text-align:center;color:#e2e8f0}
+    .loader-text{margin-top:.75rem;font-weight:600;letter-spacing:.3px}
+
+    /* Giroscopio */
+    .gyro-dial{width:96px;height:96px;border:2px solid #1f2937;border-radius:50%;margin:0 auto 6px;position:relative;background:#0b1220}
+    .gyro-needle{position:absolute;left:50%;top:50%;width:3px;height:44px;background:#60a5fa;border-radius:2px;transform-origin:50% 90%;transform:translate(-50%,-90%) rotate(0deg);box-shadow:0 0 8px rgba(96,165,250,.35)}
+    .gyro-center{position:absolute;left:50%;top:50%;width:8px;height:8px;border-radius:50%;background:#e2e8f0;transform:translate(-50%,-50%)}
+    .gyro-label{position:absolute;color:#94a3b8;font-size:.75rem;font-weight:700}
+    .gyro-label.north{left:50%;top:4px;transform:translateX(-50%)}
+    .gyro-label.east{right:6px;top:50%;transform:translateY(-50%)}
+    .gyro-label.south{left:50%;bottom:4px;transform:translateX(-50%)}
+    .gyro-label.west{left:6px;top:50%;transform:translateY(-50%)}
+
+  </style>
+</head>
+<body>
+  <nav class="z-depth-0">
+    <div class="nav-wrapper container">
+      <a href="#" class="brand-logo">Telematics</a>
+      <ul class="right hide-on-med-and-down">
+        <li><a href="#" id="refreshBtn"><i class="material-icons left">refresh</i>Refrescar</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="" style="margin-top:20px">
+    <!-- KPIs -->
+    <div class="row" id="kpis">
+      <div class="col s12 m3">
+        <div class="card center-align">
+          <div class="card-content">
+            <span class="card-title">Unidades activas</span>
+            <h4 id="kpiUnits" class="mono">—</h4>
+            <div class="muted">en línea</div>
+          </div>
+        </div>
+      </div>
+      <div class="col s12 m3">
+        <div class="card center-align">
+          <div class="card-content">
+            <span class="card-title">Velocidad prom.</span>
+            <h4 id="kpiSpeed" class="mono">—</h4>
+            <div class="muted">km/h</div>
+          </div>
+        </div>
+      </div>
+      <div class="col s12 m3">
+        <div class="card center-align">
+          <div class="card-content">
+            <span class="card-title">Alertas 24h</span>
+            <h4 id="kpiAlerts" class="mono">—</h4>
+            <div class="muted">últimas 24 h</div>
+          </div>
+        </div>
+      </div>
+      <div class="col s12 m3">
+        <div class="card center-align">
+          <div class="card-content">
+            <span class="card-title">Uso de motor</span>
+            <h4 id="kpiEngine" class="mono">—</h4>
+            <div class="muted">encendido (%)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lista + Mapa -->
+    <div class="row">
+      <div class="col s12 m4">
+        <div class="card">
+          <div class="card-content">
+            <span class="card-title">Unidades</span>
+            <div class="input-field">
+              <i class="material-icons prefix">search</i>
+              <input id="search" type="text" placeholder="Buscar por nombre / placa" />
+            </div>
+            <ul id="unitList" class="collection scroll" style="max-height:480px; overflow:auto"></ul>
+          </div>
+        </div>
+      </div>
+      <div class="col s12 m8">
+        <div class="card">
+          <div class="card-content">
+            <span class="card-title">Mapa</span>
+            <div id="map" class="skeleton"></div>
+            <div class="muted" id="unitMeta" style="margin-top:8px"></div>
+            <div id="unitCan" class="muted" style="margin-top:.5rem;"></div>
+            <!-- KPI Giroscopio -->
+            <div class="card kpi-card">
+                <div class="card-content center" style="padding:0px;">
+                    <div class="kpi-title">Giroscopio</div>
+                    <div id="gyroDial" class="gyro-dial">
+                        <div id="gyroNeedle" class="gyro-needle"></div>
+                        <div class="gyro-center"></div>
+                        <div class="gyro-label north">N</div>
+                        <div class="gyro-label east">E</div>
+                        <div class="gyro-label south">S</div>
+                        <div class="gyro-label west">O</div>
+                    </div>
+                    <div id="gyroText" class="kpi-subtitle muted">—</div>
+                </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gráfica -->
+    <div class="row">
+      <div class="col s12">
+        <div class="card">
+          <div class="card-content">
+            <span id="chartTitle" class="card-title">Velocidad promedio reciente</span>
+            <canvas id="speedChart" height="140"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+        <div class="col s12 m6">
+            <div class="card">
+            <div class="card-content">
+                <span class="card-title">Actividad actual</span>
+                <table class="highlight">
+                <thead>
+                    <tr><th>Métrica</th><th>Valor</th></tr>
+                </thead>
+                <tbody id="activityTableBody"></tbody>
+                </table>
+            </div>
+            </div>
+        </div>
+
+        <div class="col s12 m6">
+            <div class="card">
+            <div class="card-content">
+                <span class="card-title">Vehículos a revisar (incidencias)</span>
+                <table class="highlight">
+                <thead>
+                    <tr>
+                    <th>Unidad</th>
+                    <th>Motivo</th>
+                    <th>Últ. actualización</th>
+                    <th>Tiempo detenido</th>
+                    </tr>
+                </thead>
+                <tbody id="incidentTableBody"></tbody>
+                </table>
+            </div>
+            </div>
+        </div>
+    </div>
+
+  </main>
+
+  <!-- Loader global -->
+    <div id="loader" class="loader-overlay">
+        <div class="loader-box">
+            <div class="preloader-wrapper big active">
+                <div class="spinner-layer spinner-blue-only">
+                    <div class="circle-clipper left"><div class="circle"></div></div>
+                    <div class="gap-patch"><div class="circle"></div></div>
+                    <div class="circle-clipper right"><div class="circle"></div></div>
+                </div>
+            </div>
+            <div class="loader-text">Cargando datos…</div>
+        </div>
+    </div>
+
+
+  <!-- Libs -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+<script type="module">
+	const API_BASE = 'proxy.php';
+	const DEBUG = true;
+
+	// Parámetros y umbrales
+	const LOOKBACK_HOURS_FOR_CHART = 2;
+	const STALE_MINUTES_OFFLINE = 12 * 60;   // >12 h = offline
+	const STANDING_LONG_MIN = 6 * 60;        // >6 h detenido = incidencia
+
+	let MAP, MARKER, SPEED_CHART;
+	let LAST_UNITS = [];
+	let CURRENT_UNIT_LABEL = '';
+	const unitsState = new Map();
+
+	// ---------- utils ----------
+	const toUTC = (d) => new Date(d.getTime() - d.getTimezoneOffset()*60000)
+		.toISOString().replace(/\.\d{3}Z$/, 'Z');
+	const q = (sel) => document.querySelector(sel);
+	const el = (tag, cls) => { const n = document.createElement(tag); if (cls) n.className = cls; return n; };
+
+	function buildUrl(action, params = {}) {
+		const usp = new URLSearchParams({ action, ...params });
+		return `${API_BASE}?${usp.toString()}`;
+	}
+
+	async function apiGet(action, params = {}) {
+		const url = buildUrl(action, params);
+		const t0 = performance.now();
+		let resp, json;
+		try {
+			resp = await fetch(url);
+			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+			json = await resp.json();
+			if (DEBUG) {
+				console.groupCollapsed(`[API] ${action}`);
+				console.log('URL:', url);
+				console.log('Params:', params);
+				console.log('Raw response:', json);
+				console.log('Time ms:', Math.round(performance.now() - t0));
+				console.groupEnd();
+			}
+			return json.data ?? json;
+		} catch (e) {
+			if (DEBUG) {
+				console.groupCollapsed(`[API ERROR] ${action}`);
+				console.log('URL:', url);
+				console.log('Params:', params);
+				if (resp) console.log('Status:', resp.status);
+				console.error(e);
+				console.groupEnd();
+			}
+			throw e;
+		}
+	}
+
+	// Loader
+	function showLoader(){ const L = q('#loader'); if (L) L.classList.add('show'); }
+	function hideLoader(){ const L = q('#loader'); if (L) L.classList.remove('show'); }
+
+	// Mapa
+	function initMap() {
+		if (MAP) return;
+		MAP = L.map('map');
+		L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+			maxZoom: 19, attribution: '&copy; OpenStreetMap'
+		}).addTo(MAP);
+		MAP.setView([19.4326, -99.1332], 5);
+		q('#map').classList.remove('skeleton');
+	}
+	function placeMarker(lat, lng) {
+		if (!MAP) initMap();
+		if (MARKER) MARKER.setLatLng([lat, lng]); else MARKER = L.marker([lat, lng]).addTo(MAP);
+		MAP.setView([lat, lng], 12, { animate: true });
+	}
+
+	// ---------- extracción ----------
+	function hasEngineField(u){ return typeof u?.ignition !== 'undefined' || typeof u?.engine !== 'undefined'; }
+	function engineOn(u){ const v = String(u?.ignition ?? u?.engine ?? '').toLowerCase(); return /on|1|true/.test(v); }
+	function isActiveByMovement(u){
+		const name = (u?.movement_state?.name || u?.state?.name || '').toLowerCase();
+		return name && name !== 'standing' && name !== 'stopped' && name !== 'idle';
+	}
+	function extractLatLng(u){
+		if (Number.isFinite(u?.lat) && Number.isFinite(u?.lng)) return { lat: u.lat, lng: u.lng };
+		if (Number.isFinite(u?.position?.lat) && Number.isFinite(u?.position?.lng)) return { lat: u.position.lat, lng: u.position.lng };
+		if (typeof u?.location === 'string' && u.location.includes(',')) {
+			const [a,b] = u.location.split(',').map(Number);
+			if (Number.isFinite(a) && Number.isFinite(b)) return { lat:a, lng:b };
+		}
+		return { lat:null, lng:null };
+	}
+	function extractSpeed(u){
+		const candidates = [u?.speed, u?.gps_speed, u?.vehicle_speed, u?.position?.speed, u?.can_speed, u?.last_speed]
+			.map(Number).filter(v => Number.isFinite(v) && v >= 0);
+		return candidates.length ? candidates[0] : 0;
+	}
+	function labelFor(u){ return u?.number || u?.shortcut || String(u?.unit_id ?? u?.id ?? '—'); }
+	function extractDirection(u){
+		const cand = [u?.direction, u?.course, u?.position?.course, u?.heading]
+			.map(Number).find(n => Number.isFinite(n));
+		if (!Number.isFinite(cand)) return null;
+		let d = cand % 360; if (d < 0) d += 360;
+		return Math.round(d);
+	}
+	function vehicleKind(u){
+		const s = (u?.type || u?.icon || '').toLowerCase();
+		if (s.includes('truck') || s.includes('camion') || s.includes('lorry')) return 'truck';
+		if (s.includes('bus')) return 'bus';
+		return 'car';
+	}
+	function vehicleEmoji(u){ return vehicleKind(u)==='truck' ? '🚚' : vehicleKind(u)==='bus' ? '🚌' : '🚗'; }
+	function fmtKm(n){ return Intl.NumberFormat('es-MX').format(Math.round(Number(n) || 0)); }
+	function minutesSince(iso){ if (!iso) return Infinity; const dt=new Date(iso); return Math.max(0, Math.round((Date.now()-dt.getTime())/60000)); }
+	function freshnessClass(last_update){ const m=minutesSince(last_update); if (m<=5) return 'blue'; if (m<=30) return 'amber'; return 'grey'; }
+	function fmtAge(mins){ if (!Number.isFinite(mins)) return '—'; const h=Math.floor(mins/60), m=mins%60; return h?`${h} h ${m} min`:`${m} min`; }
+	function avg(arr){ return arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : 0; }
+	function max(arr){ return arr.length ? Math.max(...arr) : 0; }
+
+	// ---------- Giroscopio ----------
+	function degToCardinal(deg){
+		if (!Number.isFinite(deg)) return '—';
+		const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'];
+		const idx = Math.round(((deg % 360) / 22.5)) % 16;
+		return dirs[idx];
+	}
+	function updateGyro(deg){
+		const needle = q('#gyroNeedle'), text = q('#gyroText');
+		if (!needle || !text) return;
+		if (!Number.isFinite(deg)){
+			needle.style.transform = 'translate(-50%,-90%) rotate(0deg)';
+			text.textContent = '—';
+			return;
+		}
+		needle.style.transform = `translate(-50%,-90%) rotate(${deg}deg)`;
+		text.textContent = `${degToCardinal(deg)} (${deg}°)`;
+	}
+
+	// ---------- lista (ficha enriquecida) ----------
+	function renderUnits(list){
+		const ul = q('#unitList'); ul.innerHTML = '';
+		list.forEach(u => {
+			const unitId = u.unit_id ?? u.id ?? '';
+			const title = u.label || u.name || u.vehicle_title || u.car_number || `Unit ${unitId}`;
+			const { lat, lng } = extractLatLng(u);
+
+			const isActive = isActiveByMovement(u) || engineOn(u);
+			const chipClass = isActive ? 'teal' : freshnessClass(u.last_update);
+			const chipText = isActive ? 'activo' : (u?.movement_state?.name || u?.state?.name || '—');
+
+			const placa = labelFor(u);
+			const odo = u.mileage;
+			const cc = u.country_code || '';
+			const emoji = vehicleEmoji(u);
+
+			const li = el('li', 'collection-item unit-item');
+			li.dataset.unitId = unitId;
+			li.innerHTML = `
+				<div style="display:flex; gap:12px; align-items:center;">
+					<div style="width:44px; height:44px; border-radius:50%; background:#0b2541; display:flex; align-items:center; justify-content:center; font-size:22px;">${emoji}</div>
+					<div style="flex:1;">
+						<div style="font-weight:700; color:var(--text)">${title}</div>
+						<div class="muted">
+							#${placa}${cc ? ` · ${cc}` : ''} · ${(lat && lng) ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : '—'}${odo ? ` · ${fmtKm(odo)} km` : ''}
+						</div>
+					</div>
+					<div><span class="chip ${chipClass}" data-chip>${chipText}</span></div>
+				</div>`;
+			li.addEventListener('click', () => selectUnit(u));
+			ul.appendChild(li);
+			unitsState.set(unitId, u);
+		});
+	}
+
+	function filterList(){
+		const term = q('#search').value.trim().toLowerCase();
+		q('#unitList').querySelectorAll('li').forEach(li => {
+			const u = unitsState.get(li.dataset.unitId);
+			const title = (u?.label || u?.name || u?.vehicle_title || u?.car_number || '').toLowerCase();
+			li.style.display = title.includes(term) ? '' : 'none';
+		});
+	}
+	q('#search').addEventListener('input', filterList);
+
+	// ---------- snapshot helpers ----------
+	function snapshotRows(units){
+		return units
+			.filter(u => isActiveByMovement(u) || extractSpeed(u) > 0)
+			.map(u => ({ name: labelFor(u), v: Number(extractSpeed(u)) || 0 }))
+			.filter(r => Number.isFinite(r.v) && r.v > 0)
+			.sort((a,b) => b.v - a.v);
+	}
+
+	// ---------- tablas ----------
+	function updateActivityTable(units){
+		const tbody = q('#activityTableBody'); if (!tbody) return;
+		const total = units.length;
+		const moving = units.filter(isActiveByMovement).length;
+		const active = units.filter(u => isActiveByMovement(u) || engineOn(u)).length;
+		const freshStanding = units.filter(u => !isActiveByMovement(u) && !engineOn(u) && freshnessClass(u.last_update)==='blue').length;
+		const warmStanding  = units.filter(u => !isActiveByMovement(u) && !engineOn(u) && freshnessClass(u.last_update)==='amber').length;
+		const offline = units.filter(u => minutesSince(u.last_update) > STALE_MINUTES_OFFLINE).length;
+		const speedsMoving = units.filter(u => extractSpeed(u) > 0).map(extractSpeed);
+		const avgSpeed = avg(speedsMoving), maxSpeed = Math.round(max(speedsMoving));
+		tbody.innerHTML = `
+			<tr><td>Total unidades</td><td>${total}</td></tr>
+			<tr><td>Activas (mov/motor)</td><td>${active}</td></tr>
+			<tr><td>En movimiento</td><td>${moving}</td></tr>
+			<tr><td>Standing (reciente ≤5m)</td><td>${freshStanding}</td></tr>
+			<tr><td>Standing (5–30m)</td><td>${warmStanding}</td></tr>
+			<tr><td>Offline (&gt;12h)</td><td>${offline}</td></tr>
+			<tr><td>Velocidad promedio (mov.)</td><td>${avgSpeed} km/h</td></tr>
+			<tr><td>Velocidad máxima (mov.)</td><td>${maxSpeed} km/h</td></tr>`;
+	}
+
+	function incidentsList(units){
+		const list = [];
+		for (const u of units){
+			const name = labelFor(u);
+			const lastM = minutesSince(u.last_update);
+			const state = (u?.movement_state?.name || u?.state?.name || '').toLowerCase();
+			const durSec = Number(u?.movement_state?.duration) || 0;
+			const durMin = Math.round(durSec / 60);
+			if (lastM > STALE_MINUTES_OFFLINE) list.push({ name, reason:'offline', last:fmtAge(lastM), stopped:'—' });
+			if ((state==='standing'||state==='stopped'||state==='idle') && durMin > STANDING_LONG_MIN)
+				list.push({ name, reason:'inactivo (&gt;6h)', last:fmtAge(lastM), stopped:fmtAge(durMin) });
+		}
+		return list.sort((a,b) => (a.reason==='offline'?1:0) - (b.reason==='offline'?1:0)).slice(0,50);
+	}
+	function updateIncidentTable(units){
+		const tbody = q('#incidentTableBody'); if (!tbody) return;
+		const rows = incidentsList(units);
+		tbody.innerHTML = rows.length
+			? rows.map(r => `<tr><td>${r.name}</td><td>${r.reason}</td><td>${r.last}</td><td>${r.stopped}</td></tr>`).join('')
+			: `<tr><td colspan="4" class="muted">Sin incidencias</td></tr>`;
+		const kpi = q('#kpiAlerts'); if (kpi) kpi.textContent = String(rows.length);
+	}
+
+	// ---------- KPIs + carga ----------
+	async function loadUnits(){
+		showLoader();
+		try {
+			const data = await apiGet('unit/list', {
+				include: 'movement_state,state,position,ignition_total_time,mileage,speed,last_update,country_code,fuel_type,avg_fuel_consumption,direction,icon,number,shortcut'
+			});
+			const units = data.units || data || [];
+			LAST_UNITS = units;
+			renderUnits(units);
+
+			const activeCount = units.filter(u => isActiveByMovement(u) || engineOn(u)).length;
+			q('#kpiUnits').textContent = String(activeCount);
+
+			const now = new Date();
+			const minutesToday = now.getHours()*60 + now.getMinutes();
+			const usages = units
+				.map(u => Number(u.ignition_total_time))
+				.filter(v => Number.isFinite(v) && v >= 0)
+				.map(mins => Math.min(100, Math.round(mins / Math.max(1, minutesToday) * 100)));
+			q('#kpiEngine').textContent = usages.length ? avg(usages) : 0;
+
+			const rows = snapshotRows(units);
+			q('#kpiSpeed').textContent = rows.length ? avg(rows.map(r => r.v)) : 0;
+
+			updateActivityTable(units);
+			updateIncidentTable(units);
+
+			const firstWithPos = units.find(u => { const {lat,lng}=extractLatLng(u); return lat && lng; });
+			if (firstWithPos) selectUnit(firstWithPos);
+			else { setChartTitle('snapshot'); drawSnapshotChart(units); updateGyro(null); }
+		} catch (err) {
+			M.toast({ html: `No se pudieron cargar unidades: ${err.message}` });
+		} finally {
+			hideLoader();
+		}
+	}
+
+	async function selectUnit(u){
+		const unitId = u.unit_id ?? u.id;
+		CURRENT_UNIT_LABEL = labelFor(u);
+		const title = u.label || u.name || u.vehicle_title || u.car_number || `Unit ${unitId}`;
+		const { lat, lng } = extractLatLng(u);
+		const dir = extractDirection(u);
+
+		if (lat && lng) placeMarker(lat, lng);
+		q('#unitMeta').textContent = `Seleccionada: ${title} · ID ${unitId}`;
+		updateGyro(dir);
+
+		await Promise.all([loadSpeedSeries(unitId), loadCanPoint(unitId)]);
+	}
+
+	// ---------- can_point (detalle) ----------
+	function renderCanChip(label, val, unit){ return `<span class="chip" style="margin-right:6px;">${label}: <b>${val}${unit||''}</b></span>`; }
+	function safeNum(x){ const n=Number(x); return Number.isFinite(n) ? n : null; }
+
+	async function loadCanPoint(unitId){
+		try{
+			const data = await apiGet('unit_data/can_point', {
+				unit_id: unitId,
+				include: 'rpm,fuel_level,coolant_temp,battery_voltage,engine_load'
+			});
+			const u = (data.units || [])[0] || {};
+			const w = u || {};
+			const rpm  = safeNum(w?.rpm?.value);
+			const fuel = safeNum(w?.fuel_level?.value);
+			const temp = safeNum(w?.coolant_temp?.value);
+			const batt = safeNum(w?.battery_voltage?.value);
+			const load = safeNum(w?.engine_load?.value);
+
+			let html = '';
+			if (rpm!==null)  html += renderCanChip('RPM', rpm, '');
+			if (fuel!==null) html += renderCanChip('Combustible', fuel, '%');
+			if (temp!==null) html += renderCanChip('Temp', temp, '°C');
+			if (batt!==null) html += renderCanChip('Batería', batt, 'V');
+			if (load!==null) html += renderCanChip('Carga motor', load, '%');
+			q('#unitCan').innerHTML = html || '<span class="muted">Sin datos CAN recientes</span>';
+		}catch{
+			q('#unitCan').innerHTML = '<span class="muted">Sin datos CAN</span>';
+		}
+	}
+
+	// ---------- gráfica ----------
+	function setChartTitle(mode){
+		const h = q('#chartTitle'); if (!h) return;
+		if (mode === 'series') h.textContent = `Velocidad (últimas ${LOOKBACK_HOURS_FOR_CHART} h) — ${CURRENT_UNIT_LABEL || ''}`;
+		else h.textContent = 'Velocidades actuales (top 20)';
+	}
+
+	async function loadSpeedSeries(unitId){
+		const till = new Date();
+		const from = new Date(Date.now() - LOOKBACK_HOURS_FOR_CHART * 60 * 60 * 1000);
+		try{
+			const data = await apiGet('unit_data/can_period', {
+				unit_id: unitId, from: toUTC(from), till: toUTC(till), include: 'total_distance'
+			});
+			const unit = (data.units || [])[0];
+			const pts = (unit?.total_distance || []).map(p => {
+				const t = new Date((p.gmt || p.ts || '').replace(' ', 'T') + 'Z');
+				return { t, v: Number(p.value) };
+			});
+			const series = [];
+			for (let i=1;i<pts.length;i++){
+				const dtH = (pts[i].t - pts[i-1].t)/3600000;
+				const dd  = pts[i].v - pts[i-1].v;
+				if (dtH>0 && dd>=0) series.push({ t: pts[i].t, v: dd/dtH });
+			}
+			if (series.length){
+				setChartTitle('series'); drawSpeedChart(series);
+				const avgSeries = Math.round(series.reduce((a,b)=>a+b.v,0)/series.length);
+				q('#kpiSpeed').textContent = String(avgSeries);
+			}else{
+				setChartTitle('snapshot'); drawSnapshotChart(LAST_UNITS);
+			}
+		}catch(err){
+			setChartTitle('snapshot'); drawSpeedChart([]);
+			M.toast({ html:`Sin serie de velocidad: ${err.message}` });
+		}
+	}
+
+	function destroyChart(){ if (SPEED_CHART){ SPEED_CHART.destroy(); SPEED_CHART=null; } }
+	function drawSpeedChart(series){
+		destroyChart();
+		const ctx = document.getElementById('speedChart');
+		const labels = series.map(p => p.t.toLocaleTimeString());
+		const data   = series.map(p => +(p.v.toFixed(2)));
+		SPEED_CHART = new Chart(ctx, {
+			type:'line',
+			data:{ labels, datasets:[{ label:'km/h', data, fill:false, tension:0.25 }] },
+			options:{
+				plugins:{ legend:{ labels:{ color:'#e2e8f0' } } },
+				scales:{
+					x:{ ticks:{ color:'#cbd5e1' }, grid:{ color:'#1f2937' } },
+					y:{ ticks:{ color:'#cbd5e1' }, grid:{ color:'#1f2937' } }
+				}
+			}
+		});
+	}
+	function drawSnapshotChart(units){
+		destroyChart();
+		const ctx = document.getElementById('speedChart');
+		const rowsAll = snapshotRows(units);
+		const rowsTop = rowsAll.slice(0, 20);
+		const labels = rowsTop.map(r => String(r.name).slice(0, 14));
+		const data   = rowsTop.map(r => +(r.v.toFixed(2)));
+		SPEED_CHART = new Chart(ctx, {
+			type:'bar',
+			data:{ labels, datasets:[{ label:'km/h (snapshot)', data }] },
+			options:{
+				plugins:{ legend:{ labels:{ color:'#e2e8f0' } } },
+				scales:{
+					x:{ ticks:{ color:'#cbd5e1' }, grid:{ color:'#1f2937' } },
+					y:{ ticks:{ color:'#cbd5e1' }, grid:{ color:'#1f2937' } }
+				}
+			}
+		});
+		q('#kpiSpeed').textContent = rowsAll.length ? avg(rowsAll.map(r => r.v)) : 0;
+	}
+
+	// ---------- init ----------
+	document.addEventListener('DOMContentLoaded', () => {
+		initMap();
+		showLoader();
+		loadUnits();
+		q('#refreshBtn').addEventListener('click', (e) => { e.preventDefault(); showLoader(); loadUnits(); });
+	});
+</script>
+
+
+
+</body>
+</html>
