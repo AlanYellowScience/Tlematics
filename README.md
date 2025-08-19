@@ -7,16 +7,22 @@ consumiendo la API de Telematics Advance a través de un proxy PHP (cURL).
 Incluye KPIs, lista de unidades, mapa, gráfica de velocidad, tablas de actividad
 e incidencias, giroscopio (rumbo) y un loader visible durante la carga.
 
+Puede consultar el proyecto en un ambiente productivo vía:
+(https://apprendi.com.mx/PruebaTecnica/)
+
 ## Estructura de archivos
 
 / (raíz pública del sitio)
+
 ├─ index.html          - Frontend (UI + JS)
+
 ├─ proxy.php           - Proxy PHP con cURL hacia la API (whitelist de endpoints)
+
 └─ /assets             - Opcional: imágenes/recursos estáticos
 
 ## Requisitos
 
-* PHP 7+ con extensión cURL habilitada (hosting Webempresa cumple esto).
+* PHP 7+ con extensión cURL habilitada (hosting estandar).
 * Acceso HTTPS saliente a [https://www.telematicsadvance.com/api/](https://www.telematicsadvance.com/api/)
 * Navegador moderno.
 
@@ -32,7 +38,7 @@ e incidencias, giroscopio (rumbo) y un loader visible durante la carga.
 
 ## Ejecución local (opcional para evaluación)
 
-1. Instalar PHP.
+1. Instalar PHP (7+).
 2. Desde el directorio del proyecto ejecutar:
    php -S localhost:8080
 3. Abrir [http://localhost:8080/](http://localhost:8080/)
